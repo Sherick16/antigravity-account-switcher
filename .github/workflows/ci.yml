@@ -53,6 +53,7 @@ jobs:
 
       - name: Run Tests (-race)
         run: |
+          umask 077
           go test -v -race -timeout=5m -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload Coverage

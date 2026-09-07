@@ -134,7 +134,12 @@ func TestTier3_REST_API_Endpoints(t *testing.T) {
 	}
 
 	// 3. POST /api/accounts/acc-rest-2/select
-	respSelect, err := http.Post(env.ServerURL+"/api/accounts/acc-rest-2/select", "application/json", nil)
+	selectReq, err := http.NewRequest(http.MethodPost, env.ServerURL+"/api/accounts/acc-rest-2/select", nil)
+	if err != nil {
+		t.Fatalf("create select request: %v", err)
+	}
+	selectReq.Header.Set("Origin", "http://"+selectReq.URL.Host)
+	respSelect, err := http.DefaultClient.Do(selectReq)
 	if err != nil {
 		t.Fatalf("POST select: %v", err)
 	}
