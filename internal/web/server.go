@@ -26,6 +26,7 @@ var embeddedDistFS embed.FS
 type ServerConfig struct {
 	Port         int
 	BindAddr     string
+	UnsafeBind   bool
 	Version      string
 	ProxyHandler http.Handler
 	Poller       QuotaPoller
@@ -44,6 +45,11 @@ func WithPort(p int) Option {
 // WithBindAddr sets the IP/host to bind to (e.g. 127.0.0.1 or 0.0.0.0).
 func WithBindAddr(addr string) Option {
 	return func(c *ServerConfig) { c.BindAddr = addr }
+}
+
+// WithUnsafeBind explicitly permits serving on a non-loopback address.
+func WithUnsafeBind(unsafe bool) Option {
+	return func(c *ServerConfig) { c.UnsafeBind = unsafe }
 }
 
 // WithVersion sets the server version string.
@@ -105,6 +111,9 @@ func NewServer(
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	if !cfg.UnsafeBind && !isLoopbackAddress(cfg.BindAddr) {
+		return nil, fmt.Errorf("non-loopback bind address %q requires explicit unsafe bind override", cfg.BindAddr)
+	}
 
 	sub, err := fs.Sub(embeddedDistFS, "dist")
 	if err != nil {
@@ -136,6 +145,16 @@ func NewServer(
 // ServeHTTP routes incoming requests to API, Proxy, or Static UI assets.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	proxyRequest := s.proxyHandler != nil && s.isProxyRequest(r)
+	if err := s.validateRequestSecurity(r, proxyRequest); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	if proxyRequest {
+		s.proxyHandler.ServeHTTP(w, r)
+		return
+	}
 
 	// 1. API Endpoints
 	if path == "/api/status" {
@@ -164,18 +183,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Cloud Code PA Reverse / Forward Proxy Interception
-	if s.proxyHandler != nil && s.isProxyRequest(r) {
-		s.proxyHandler.ServeHTTP(w, r)
-		return
-	}
-
 	// 3. Embedded Web Dashboard Static Files
 	s.serveStatic(w, r)
 }
 
 func (s *Server) isProxyRequest(r *http.Request) bool {
+	if r.Method == http.MethodConnect || r.URL.Host != "" {
+		return true
+	}
+
 	// Google Cloud Code PA hosts
-	if strings.Contains(r.Host, "googleapis.com") {
+	host := hostWithoutPort(r.Host)
+	if host == "googleapis.com" || strings.HasSuffix(host, ".googleapis.com") {
 		return true
 	}
 
@@ -188,13 +207,6 @@ func (s *Server) isProxyRequest(r *http.Request) bool {
 		strings.Contains(p, "generateContent") ||
 		strings.Contains(p, "retrieveUserQuota") {
 		return true
-	}
-
-	// Non-GET requests that are not API/OAuth endpoints are upstream proxy calls
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		if !strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/oauth/") {
-			return true
-		}
 	}
 
 	return false

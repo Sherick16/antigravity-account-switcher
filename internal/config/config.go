@@ -67,6 +67,12 @@ func DefaultConfig() *Config {
 func Load() (*Config, error) {
 	cfg := DefaultConfig()
 	path := ConfigFilePath()
+	if err := EnsurePrivateDir(ConfigDir()); err != nil {
+		return nil, err
+	}
+	if err := RepairPrivateFile(path); err != nil {
+		return nil, err
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -103,8 +109,8 @@ func Load() (*Config, error) {
 // Save writes the configuration to disk, ensuring directory creation.
 func Save(cfg *Config) error {
 	dir := ConfigDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("failed to create config directory %s: %w", dir, err)
+	if err := EnsurePrivateDir(dir); err != nil {
+		return fmt.Errorf("failed to prepare config directory: %w", err)
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -113,8 +119,14 @@ func Save(cfg *Config) error {
 	}
 
 	path := ConfigFilePath()
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := EnsurePrivateFile(path); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config to %s: %w", path, err)
+	}
+	if err := RepairPrivateFile(path); err != nil {
+		return err
 	}
 
 	return nil

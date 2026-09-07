@@ -289,7 +289,12 @@ func TestServer_API_Accounts_CRUD_And_Select(t *testing.T) {
 	}
 
 	// 2. Select acc-2 as active
-	respSelect, err := http.Post(ts.URL+"/api/accounts/acc-2/select", "application/json", nil)
+	selectReq, err := http.NewRequest(http.MethodPost, ts.URL+"/api/accounts/acc-2/select", nil)
+	if err != nil {
+		t.Fatalf("create select req: %v", err)
+	}
+	selectReq.Header.Set("Origin", "http://"+selectReq.URL.Host)
+	respSelect, err := http.DefaultClient.Do(selectReq)
 	if err != nil {
 		t.Fatalf("POST select acc-2: %v", err)
 	}
@@ -308,6 +313,7 @@ func TestServer_API_Accounts_CRUD_And_Select(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create delete req: %v", err)
 	}
+	reqDel.Header.Set("Origin", "http://"+reqDel.URL.Host)
 	respDel, err := http.DefaultClient.Do(reqDel)
 	if err != nil {
 		t.Fatalf("DELETE acc-1: %v", err)
@@ -608,7 +614,12 @@ func TestServer_ConcurrentWorkload_RaceDetector(t *testing.T) {
 					}
 				case 4:
 					targetAcc := fmt.Sprintf("acc-race-%d", (workerID+j)%3)
-					resp, err := client.Post(fmt.Sprintf("%s/api/accounts/%s/select", ts.URL, targetAcc), "application/json", nil)
+					selectReq, reqErr := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/accounts/%s/select", ts.URL, targetAcc), nil)
+					if reqErr != nil {
+						continue
+					}
+					selectReq.Header.Set("Origin", "http://"+selectReq.URL.Host)
+					resp, err := client.Do(selectReq)
 					if err == nil {
 						_ = resp.Body.Close()
 					}

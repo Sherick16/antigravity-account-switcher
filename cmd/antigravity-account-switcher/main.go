@@ -122,6 +122,7 @@ func runServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := fs.Int("port", defaultPort, "Web dashboard and proxy port")
 	bind := fs.String("bind", "127.0.0.1", "Bind address")
+	unsafeBind := fs.Bool("unsafe-bind", false, "Allow binding the dashboard and proxy to a non-loopback address")
 	dbPath := fs.String("db", defaultDBPath(), "Path to SQLite database file")
 	pollInterval := fs.Duration("poll-interval", defaultPollInterval, "Background quota polling interval")
 	targetURL := fs.String("target-url", defaultTargetURL, "Google Cloud Code PA upstream target")
@@ -206,6 +207,7 @@ func runServe(args []string) {
 		oauthService,
 		web.WithPort(*port),
 		web.WithBindAddr(*bind),
+		web.WithUnsafeBind(*unsafeBind),
 		web.WithVersion(Version),
 		web.WithProxyHandler(proxyHandler),
 		web.WithPoller(poller),

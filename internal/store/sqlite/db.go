@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Muriel-Gasparini/antigravity-account-switcher/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -31,10 +32,30 @@ func BuildDSN(dbPath string) string {
 // Open initializes a SQLite connection pool with WAL mode, busy timeout, and auto-migration.
 func Open(dbPath string) (*DB, error) {
 	if dbPath != ":memory:" && !strings.HasPrefix(dbPath, "file::memory:") {
-		if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return nil, fmt.Errorf("failed to create db directory: %w", err)
+		dbPath, err := filepath.Abs(dbPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve db path: %w", err)
+		}
+		dir := filepath.Dir(dbPath)
+		configDir, err := filepath.Abs(config.ConfigDir())
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve config directory: %w", err)
+		}
+		if dir == configDir {
+			if err := config.EnsurePrivateDir(dir); err != nil {
+				return nil, fmt.Errorf("failed to secure application data directory: %w", err)
 			}
+		} else if _, err := os.Lstat(dir); os.IsNotExist(err) {
+			if err := config.EnsurePrivateDir(dir); err != nil {
+				return nil, fmt.Errorf("failed to create private database directory: %w", err)
+			}
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to inspect database directory: %w", err)
+		} else if err := config.VerifyPrivateDir(dir); err != nil {
+			return nil, fmt.Errorf("custom database directory is not private: %w", err)
+		}
+		if err := config.EnsurePrivateFile(dbPath); err != nil {
+			return nil, fmt.Errorf("failed to secure db file: %w", err)
 		}
 	}
 
@@ -56,6 +77,12 @@ func Open(dbPath string) (*DB, error) {
 	if err := rawDB.PingContext(ctx); err != nil {
 		rawDB.Close()
 		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
+	}
+	if dbPath != ":memory:" && !strings.HasPrefix(dbPath, "file::memory:") {
+		if err := config.RepairPrivateFile(dbPath); err != nil {
+			_ = rawDB.Close()
+			return nil, fmt.Errorf("failed to secure db file after open: %w", err)
+		}
 	}
 
 	db := &DB{DB: rawDB}

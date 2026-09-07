@@ -43,6 +43,40 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	if loaded.AntigravityBin != "/custom/bin/antigravity" {
 		t.Errorf("expected bin %s, got %s", "/custom/bin/antigravity", loaded.AntigravityBin)
 	}
+
+	assertMode(t, tmpDir, 0o700)
+	assertMode(t, ConfigFilePath(), 0o600)
+}
+
+func TestLoadRepairsExistingConfigDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", tmpDir)
+	if err := os.Chmod(tmpDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	assertMode(t, tmpDir, 0o700)
+}
+
+func TestEnsurePrivateFileCreatesOwnerOnlyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := EnsurePrivateFile(path); err != nil {
+		t.Fatalf("EnsurePrivateFile failed: %v", err)
+	}
+	assertMode(t, path, 0o600)
+}
+
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %o, want %o", path, got, want)
+	}
 }
 
 func TestResolveAntigravityBin_ExplicitOverride(t *testing.T) {

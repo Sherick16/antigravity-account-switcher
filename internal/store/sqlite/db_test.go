@@ -2,6 +2,7 @@ package sqlite_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -58,6 +59,71 @@ func TestOpen_FileDB_Pragmas(t *testing.T) {
 	stats := db.Stats()
 	if stats.MaxOpenConnections != 1 {
 		t.Errorf("expected MaxOpenConnections 1, got %d", stats.MaxOpenConnections)
+	}
+
+	assertMode(t, filepath.Dir(dbPath), 0o700)
+	assertMode(t, dbPath, 0o600)
+}
+
+func TestOpen_RepairsExistingDatabasePermissions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dir, "accounts.db")
+	if err := os.WriteFile(dbPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sqlite.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+
+	assertMode(t, dir, 0o700)
+	assertMode(t, dbPath, 0o600)
+}
+
+func TestOpen_CreatesMissingCustomDatabaseDirectoryPrivate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "new", "private")
+	dbPath := filepath.Join(dir, "accounts.db")
+	db, err := sqlite.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+
+	assertMode(t, dir, 0o700)
+	assertMode(t, dbPath, 0o600)
+}
+
+func TestOpen_RejectsExistingCustomDatabaseDirectoryWithUnsafePermissions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dir, "accounts.db")
+	if _, err := sqlite.Open(dbPath); err == nil {
+		t.Fatal("Open unexpectedly accepted a non-private custom database directory")
+	}
+	assertMode(t, dir, 0o755)
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("database file existence error = %v, want file to remain absent", err)
+	}
+}
+
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %o, want %o", path, got, want)
 	}
 }
 
